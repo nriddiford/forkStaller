@@ -59,12 +59,12 @@ def forkStaller(seqInfo, poolsize, length):
     for i in range(length):
         q = 0
         random.shuffle(seqInfo)
-        for c, p, s in seqInfo:
-            # c, p, s = value
+        for index, value in enumerate(list(seqInfo)):
+            c, p, s = value
             if len(s) <= i+1:
-                # print("Overshot!. DNA synthesis reached the end of chromosome %s (%s:%s-%s)" % (c, c, p, p+i))
+                print("Overshot!. DNA synthesis reached the end of chromosome %s (%s:%s-%s)" % (c, c, p, p+i))
                 # seqInfo.pop(index)
-                del seqInfo[q]
+                # del seqInfo[q]
                 continue
 
             n = s[i:i + 1]
