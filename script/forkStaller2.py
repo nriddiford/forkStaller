@@ -54,11 +54,11 @@ def getSeq(fastaFile, bedFile, length):
         return(list(zip(chroms, origins, seqs, direction)))
 
 
-def forkStaller(seqInfo, poolsize, length):
+def forkStaller(seqInfo, poolsize, length, dNTPs):
     """For each index position in 0..length shuffled sequences and remove a dNTP from the pool
         Once a pool is depleted, return the genomic coordinates of the fork stall and associated information"""
 
-    dNTPS = dict.fromkeys(['A', 'T', 'C', 'G'], poolsize)
+    # dNTPS = dict.fromkeys(['A', 'T', 'C', 'G'], poolsize)
 
     nFreq = defaultdict(int)
     replicatedLength = 0
@@ -78,15 +78,25 @@ def forkStaller(seqInfo, poolsize, length):
                 continue
 
             nFreq[n] += 1
-            dNTPS[n] -= 1
+            dNTPs[n] -= 1
             replicatedLength += 1
 
-            if dNTPS[n] == 0:
-                return (c, p, n, d, i, s, nFreq, replicatedLength, dNTPS)
+            if dNTPs[n] == 0:
+                return (c, p, n, d, i, s, nFreq, replicatedLength, dNTPs)
+
+def dNTPpooler(poolsize, relativeConcs):
+    dNTPs = {}
+    for n in ['A', 'T', 'C', 'G']:
+        dNTPs[n] = int(poolsize*relativeConcs[n])
+
+    print dNTPs
+    return dNTPs
 
 
 def runSim(min, max, n, length, seqInfo, fasta, outfile):
     genome = pysam.Fastafile(fasta)
+    relativeConcs = {'A': .25, 'C': .23, 'G': .15, 'T': .37} # (Guo et al., 2017)
+
     print("Running %s simulations" % n)
     print("Randomly generating a dNTP poolsize within an upper and lower boundary of %s and %s" % (min, max))
     with open(outfile, 'w') as fastaOut:
@@ -94,7 +104,10 @@ def runSim(min, max, n, length, seqInfo, fasta, outfile):
             print("-- Iteration %s --" % (x+1))
             pool = random.randint(min, max)
             print ("Using dNTP poolsize of %s" % pool)
-            c, p, b, d, i, s, nFreq, replicatedLength, dNTPS = forkStaller(seqInfo, pool, length)
+
+            dNTPs = dNTPpooler(pool, relativeConcs)
+
+            c, p, b, d, i, s, nFreq, replicatedLength, dNTPs = forkStaller(seqInfo, pool, length, dNTPs)
             if d == 'F':
                 forkstallPos = p + i
                 ori = '-->'
@@ -110,7 +123,7 @@ def runSim(min, max, n, length, seqInfo, fasta, outfile):
                   " dATPs = %s\n"
                   " dTTPs = %s\n"
                   " dCTPs = %s\n"
-                  " sGTPs = %s" % (dNTPS['A'], dNTPS['T'], dNTPS['C'], dNTPS['G']))
+                  " sGTPs = %s" % (dNTPs['A'], dNTPs['T'], dNTPs['C'], dNTPs['G']))
             print("o Nucleotide frequency in replicated DNA:")
             for nucleotide in nFreq:
                 f = round((nFreq[nucleotide] / replicatedLength), 2)
