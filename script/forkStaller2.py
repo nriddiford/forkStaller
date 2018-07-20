@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 from __future__ import division
 import os, re, sys
 import pysam
@@ -18,9 +19,34 @@ def getNucFreqs(sequence):
         print(" %s %s%%" % (i, round(nuCounts[i]/nucTotal * 100)))
 
 
+def slidingWindow(sequence, winSize, step=1):
+    """Returns a generator that will iterate through
+    the defined chunks of input sequence.  Input sequence
+    must be iterable."""
+    numOfChunks = int(((len(sequence) - winSize) / step) + 1)
+    for i in range(0, numOfChunks * step, step):
+        yield sequence[i:i + winSize], i
+
+
+def instability(seq, step, threshold):
+    windows = slidingWindow(seq, step)
+    for w, p in windows:
+        nFreq = defaultdict(int)
+        for c in w:
+            nFreq[c] += 1
+        topN = Counter(nFreq)
+        nuc, count = topN.most_common(1)[0]
+        percentage = round((count/(len(w))*100), 1)
+
+        if percentage >= threshold:
+            yield nuc, count, percentage, w, p
+
+
 def getSeq(fastaFile, bedFile, length):
     """For a bed file of replication origins, flip a coin to decide whether to fire F or R
         and extract genomic sequence length away"""
+    print("o Origins: %s" % bedFile)
+    print("o Fasta: from %s" % fastaFile)
     genome = pysam.Fastafile(fastaFile)
     chroms = []
     origins = []
@@ -67,14 +93,14 @@ def forkStaller(seqInfo, poolsize, length, dNTPs):
         random.shuffle(seqInfo)
         for index, value in enumerate(list(seqInfo)):
             c, p, s, d = value
-            if len(s) <= i+1:
-                print("Overshot!. DNA synthesis reached the end of chromosome %s (%s:%s-%s)" % (c, c, p, p+i))
-                seqInfo.pop(index)
-                continue
-
             n = s[i:i + 1]
 
             if n == 'N':
+                continue
+
+            if len(s) <= i+1:
+                print("Overshot!. DNA synthesis reached the end of chromosome %s (%s:%s-%s)" % (c, c, p, p+i))
+                seqInfo.pop(index)
                 continue
 
             nFreq[n] += 1
@@ -82,14 +108,15 @@ def forkStaller(seqInfo, poolsize, length, dNTPs):
             replicatedLength += 1
 
             if dNTPs[n] == 0:
-                return (c, p, n, d, i, s, nFreq, replicatedLength, dNTPs)
+                return c, p, n, d, i, s, nFreq, replicatedLength, dNTPs
+
 
 def dNTPpooler(poolsize, relativeConcs):
     dNTPs = {}
     for n in ['A', 'T', 'C', 'G']:
         dNTPs[n] = int(poolsize*relativeConcs[n])
 
-    print dNTPs
+    print(dNTPs)
     return dNTPs
 
 
@@ -97,17 +124,20 @@ def runSim(min, max, n, length, seqInfo, fasta, outfile):
     genome = pysam.Fastafile(fasta)
     relativeConcs = {'A': .25, 'C': .23, 'G': .15, 'T': .37} # (Guo et al., 2017)
 
+    dnaBreaks = 'out/breakpoints.bed'
+
     print("Running %s simulations" % n)
     print("Randomly generating a dNTP poolsize within an upper and lower boundary of %s and %s" % (min, max))
     with open(outfile, 'w') as fastaOut:
         for x in range(n):
             print("-- Iteration %s --" % (x+1))
             pool = random.randint(min, max)
-            print ("Using dNTP poolsize of %s" % pool)
+            print('Using dNTP poolsize of %s' % pool)
 
             dNTPs = dNTPpooler(pool, relativeConcs)
 
             c, p, b, d, i, s, nFreq, replicatedLength, dNTPs = forkStaller(seqInfo, pool, length, dNTPs)
+
             if d == 'F':
                 forkstallPos = p + i
                 ori = '-->'
@@ -117,6 +147,23 @@ def runSim(min, max, n, length, seqInfo, fasta, outfile):
                 ori = '<--'
                 location = 'upstream'
 
+            breaks = instability(s[i:i+50], 25, 70)
+
+            if any(True for _ in breaks):
+                with open(dnaBreaks, 'w') as bpOut:
+                    for br in breaks:
+                        if d =='F':
+                            breakpoint = forkstallPos + br[4]
+                        else:
+                            breakpoint = forkstallPos - br[4]
+                        bpOut.write('\t'.join(map(str, [c, breakpoint, breakpoint+1])) + '\n')
+
+
+                        print("Sequence %s is > %s%% %s at %s:%s" % (br[3], br[2], br[0], c, breakpoint))
+
+            else:
+                print("Fork stall but no DNA break")
+                continue
 
             print("Starting from a replication origin of %s:%s and travelling %s, d%sTP exhausted and fork stalled %s bases %s (%s:%s)" % (c, p, ori, b, i, location, c, forkstallPos))
             print("o Final dNTP counts at fork stall:\n"
@@ -132,7 +179,8 @@ def runSim(min, max, n, length, seqInfo, fasta, outfile):
             print("o Sequence +/- 20bps from fork stall:")
             print(genome.fetch(c, forkstallPos - 20, forkstallPos), b, genome.fetch(c, forkstallPos + 1, (forkstallPos + 1) + 20))
             print("-----------")
-            # fastaOut.write(">%s:%s_%s_%s\n%s\n" % (c, p, i, forkstallPos, genome.fetch(c, forkstallPos-100, forkstallPos+100)))
+            nfreqs_string = '_'.join(['%s:%s' % (key, value) for (key, value) in relativeConcs.items()])
+            fastaOut.write(">%s:%s_%s_%s_npool:%s_%s\n%s\n" % (c, p, i, forkstallPos, pool, nfreqs_string, genome.fetch(c, forkstallPos-100, forkstallPos+100)))
 
 
 def fileLength(file):
@@ -211,6 +259,7 @@ def main():
     originCount = fileLength(options.bed_file)
     length = (int(options.max/originCount)*4)+2
     info = getSeq(options.genome, options.bed_file, length)
+    print("-----------")
 
     if options.seed:
         print("Using seed %s" % (options.seed))
