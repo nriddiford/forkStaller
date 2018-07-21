@@ -150,7 +150,7 @@ def runSim(min, max, n, length, seqInfo, fasta, outfile):
             breaks = instability(s[i:i+50], 25, 70)
 
             if any(True for _ in breaks):
-                with open(dnaBreaks, 'w') as bpOut:
+                with open(dnaBreaks, 'w+') as bpOut:
                     for br in breaks:
                         if d =='F':
                             breakpoint = forkstallPos + br[4]
