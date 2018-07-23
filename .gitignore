@@ -1,2 +1,11 @@
 data/*
 out/*
+*.xml
+*.iml
+script/breaker.py
+script/getPwm.py
+script/getSeqs.py
+script/HUdeplete.py
+script/keys2dict.py
+script/out/simrepstalls.fa
+script/wordCounter.py
