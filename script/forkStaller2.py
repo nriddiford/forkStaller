@@ -149,7 +149,7 @@ def runSim(min, max, n, length, seqInfo, fasta, outfile):
                 ori = '<--'
                 location = 'upstream'
 
-            breaks = instability(s[i:i+50], 25, 70)
+            breaks = instability(s[i:i+50], 25, 60)
             # This is a crazy way of doing this!
             if any(True for _ in breaks):
                 for br in breaks:
